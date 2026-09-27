@@ -1,0 +1,29 @@
+# Business categories and tones available to POST /generate.
+# Each entry is keyed by its id, so an entry's data can never drift out of
+# sync with its id. Adding a category or tone here needs no code change.
+
+categories:
+  restaurant:
+    label: Restaurant & Café
+    guidance: Emphasize taste, atmosphere, and convenient location.
+  bakery:
+    label: Bakery & Pastry
+    guidance: Emphasize freshness, craftsmanship, and daily-baked products.
+  fitness:
+    label: Gym & Fitness
+    guidance: Emphasize results, community, and motivation.
+  beauty:
+    label: Beauty & Personal Care
+    guidance: Emphasize self-care, expertise, and visible results.
+  home_services:
+    label: Home Services
+    guidance: Emphasize reliability, fast response, and trustworthy professionals.
+  retail:
+    label: Retail Shop
+    guidance: Emphasize product selection, value, and a pleasant shopping experience.
+
+tones:
+  friendly: Warm, conversational, and approachable.
+  professional: Clear and confident, without slang.
+  playful: Light-hearted and energetic, with a touch of humor.
+  premium: Elegant and refined, focused on quality and exclusivity.
