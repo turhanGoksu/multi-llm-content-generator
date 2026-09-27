@@ -12,6 +12,10 @@ import httpx
 # HTML error page doesn't bloat logs or the database.
 MAX_ERROR_BODY_CHARS = 500
 
+# Exceptions that mean "the response body is not shaped as expected", e.g.
+# a JSON list where an object was expected raises AttributeError on .get().
+RESPONSE_SHAPE_ERRORS = (ValueError, KeyError, IndexError, TypeError, AttributeError)
+
 
 class CallStatus(StrEnum):
     """Outcome of the HTTP call itself (output quality is judged later)."""
@@ -66,8 +70,8 @@ class LLMProvider(ABC):
     def _extract_text(self, body: dict[str, Any]) -> str:
         """Return the generated text from a successful response body.
 
-        Raise ValueError, KeyError, IndexError or TypeError if the body does
-        not have the expected shape.
+        Raise any of RESPONSE_SHAPE_ERRORS if the body does not have the
+        expected shape.
         """
 
     async def generate(self, prompt: str) -> ProviderResult:
@@ -107,7 +111,7 @@ class LLMProvider(ABC):
 
         try:
             text = self._extract_text(response.json())
-        except (ValueError, KeyError, IndexError, TypeError) as exc:
+        except RESPONSE_SHAPE_ERRORS as exc:
             return self._result(
                 CallStatus.ERROR,
                 start,
