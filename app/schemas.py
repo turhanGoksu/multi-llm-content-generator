@@ -8,7 +8,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from app.providers.base import CallStatus, ProviderResult
+from app.providers.base import CallStatus, ProviderResult, RateLimitSource
 
 # Single source of truth for length limits. Measured with len(), i.e. in
 # characters (not tokens). The prompt builder reads these same constants.
@@ -73,6 +73,8 @@ class ProviderOutput(BaseModel):
     raw_text: str | None
     error_message: str | None
     warnings: list[str]
+    retry_after_seconds: float | None
+    rate_limit_source: RateLimitSource | None
 
 
 class GenerationRecord(BaseModel):

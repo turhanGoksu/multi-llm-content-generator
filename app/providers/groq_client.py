@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 
 from app.providers.base import LLMProvider
+from app.providers.rate_limit import ProviderRateLimiter
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -22,9 +23,10 @@ class GroqClient(LLMProvider):
         api_key: str,
         model: str,
         timeout_seconds: float,
+        rate_limiter: ProviderRateLimiter,
         reasoning_effort: str | None = None,
     ) -> None:
-        super().__init__(http_client, api_key, model, timeout_seconds)
+        super().__init__(http_client, api_key, model, timeout_seconds, rate_limiter)
         # Only reasoning models accept this parameter, so it is sent only when set.
         self._reasoning_effort = reasoning_effort or None
 
@@ -43,3 +45,8 @@ class GroqClient(LLMProvider):
     def _extract_text(self, body: dict[str, Any]) -> str:
         # content can be null; treat that as empty text, not a crash.
         return body["choices"][0]["message"]["content"] or ""
+
+    def _parse_retry_after(self, response: httpx.Response) -> float | None:
+        # Groq sends a standard Retry-After header, in seconds.
+        value = response.headers.get("retry-after")
+        return float(value) if value is not None else None

@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from app.providers.base import RateLimitSource
 from app.schemas import AdCopy, GenerationRecord, OutputStatus, ProviderOutput
 
 
@@ -57,6 +58,8 @@ class ProviderOutputRow(Base):
     content: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     error_message: Mapped[str | None] = mapped_column(Text)
     warnings: Mapped[list[str]] = mapped_column(JSONB)
+    retry_after_seconds: Mapped[float | None]
+    rate_limit_source: Mapped[str | None] = mapped_column(String(16))
 
     generation: Mapped[Generation] = relationship(back_populates="outputs")
 
@@ -80,6 +83,8 @@ async def save_generation(session: AsyncSession, record: GenerationRecord) -> No
                 content=out.content.model_dump() if out.content else None,
                 error_message=out.error_message,
                 warnings=out.warnings,
+                retry_after_seconds=out.retry_after_seconds,
+                rate_limit_source=out.rate_limit_source,
             )
             for out in record.results.values()
         ],
@@ -116,4 +121,8 @@ def _row_to_output(row: ProviderOutputRow) -> ProviderOutput:
         raw_text=row.raw_text,
         error_message=row.error_message,
         warnings=row.warnings,
+        retry_after_seconds=row.retry_after_seconds,
+        rate_limit_source=(
+            RateLimitSource(row.rate_limit_source) if row.rate_limit_source else None
+        ),
     )

@@ -2,9 +2,12 @@
 
 from typing import Any
 
+import httpx
+
 from app.providers.base import LLMProvider
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+RETRY_INFO_TYPE = "type.googleapis.com/google.rpc.RetryInfo"
 
 
 class GeminiClient(LLMProvider):
@@ -28,3 +31,12 @@ class GeminiClient(LLMProvider):
             raise ValueError(f"no output from Gemini ({reason})")
         parts = candidates[0].get("content", {}).get("parts", [])
         return "".join(part.get("text", "") for part in parts)
+
+    def _parse_retry_after(self, response: httpx.Response) -> float | None:
+        # Gemini sends no Retry-After header; the delay is in the error body:
+        # error.details[] -> {"@type": ".../google.rpc.RetryInfo", "retryDelay": "34s"}.
+        # For daily-quota 429s this delay can be far shorter than the real reset.
+        for detail in response.json().get("error", {}).get("details", []):
+            if detail.get("@type") == RETRY_INFO_TYPE:
+                return float(detail["retryDelay"].removesuffix("s"))
+        return None

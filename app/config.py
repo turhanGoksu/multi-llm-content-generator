@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # Optional; only for Groq reasoning models (e.g. "low"). Empty = not sent.
     groq_reasoning_effort: str | None = None
     provider_timeout_seconds: float = 30.0
+    # Free-tier requests-per-minute limits. They differ per provider and model
+    # and change over time, so they live in .env next to the model names.
+    gemini_rpm: int = Field(gt=0)
+    groq_rpm: int = Field(gt=0)
     database_url: str
 
 

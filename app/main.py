@@ -28,6 +28,7 @@ from app.prompts import (
 from app.providers.base import CallStatus, LLMProvider, ProviderResult
 from app.providers.gemini_client import GeminiClient
 from app.providers.groq_client import GroqClient
+from app.providers.rate_limit import ProviderRateLimiter
 from app.schemas import GenerationRecord, ProviderOutput, validate_output
 
 logger = logging.getLogger(__name__)
@@ -63,12 +64,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 settings.gemini_api_key.get_secret_value(),
                 settings.gemini_model,
                 settings.provider_timeout_seconds,
+                ProviderRateLimiter(settings.gemini_rpm),
             ),
             GroqClient(
                 http_client,
                 settings.groq_api_key.get_secret_value(),
                 settings.groq_model,
                 settings.provider_timeout_seconds,
+                ProviderRateLimiter(settings.groq_rpm),
                 reasoning_effort=settings.groq_reasoning_effort,
             ),
         ]
@@ -118,6 +121,8 @@ def _to_output(result: ProviderResult) -> ProviderOutput:
         raw_text=result.raw_text,
         error_message=validated.error_message,
         warnings=validated.warnings,
+        retry_after_seconds=result.retry_after_seconds,
+        rate_limit_source=result.rate_limit_source,
     )
 
 
