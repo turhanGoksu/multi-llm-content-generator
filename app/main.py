@@ -4,15 +4,21 @@ import asyncio
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Annotated, TypeAlias
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import get_settings
+from app.db import Base, get_generation, save_generation
 from app.prompts import (
     PromptConfig,
     UnknownOptionError,
@@ -22,7 +28,7 @@ from app.prompts import (
 from app.providers.base import CallStatus, LLMProvider, ProviderResult
 from app.providers.gemini_client import GeminiClient
 from app.providers.groq_client import GroqClient
-from app.schemas import AdCopy, OutputStatus, validate_output
+from app.schemas import GenerationRecord, ProviderOutput, validate_output
 
 logger = logging.getLogger(__name__)
 
@@ -39,35 +45,17 @@ class GenerateRequest(BaseModel):
     tone: str
 
 
-class ProviderOutput(BaseModel):
-    """One provider's call details and validated output."""
-
-    provider: str
-    model: str
-    status: OutputStatus
-    latency_ms: int
-    http_status: int | None
-    content: AdCopy | None
-    raw_text: str | None
-    error_message: str | None
-    warnings: list[str]
-
-
-class GenerationRecord(BaseModel):
-    id: uuid.UUID
-    created_at: datetime
-    description: str
-    category: str
-    tone: str
-    # Keyed by provider name, so each output is tied to its provider
-    # explicitly rather than by list position.
-    results: dict[str, ProviderOutput]
-
-
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
     app.state.prompt_config = load_prompt_config()
+
+    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+    # create_all only creates missing tables; it never alters existing ones.
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+
     async with httpx.AsyncClient() as http_client:
         app.state.providers = [
             GeminiClient(
@@ -83,12 +71,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 settings.provider_timeout_seconds,
             ),
         ]
-        # Temporary in-memory storage; replaced by PostgreSQL in the next step.
-        app.state.store = {}
         yield
+
+    await engine.dispose()
 
 
 app = FastAPI(title="Multi-LLM Content Generator", lifespan=lifespan)
+
+
+async def get_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    async with request.app.state.sessionmaker() as session:
+        yield session
+
+
+SessionDep: TypeAlias = Annotated[AsyncSession, Depends(get_session)]
 
 
 async def _safe_generate(provider: LLMProvider, prompt: str) -> ProviderResult:
@@ -127,7 +123,9 @@ def _to_output(result: ProviderResult) -> ProviderOutput:
 @app.post(
     "/generate", response_model=GenerationRecord, status_code=status.HTTP_201_CREATED
 )
-async def generate(body: GenerateRequest, request: Request) -> GenerationRecord:
+async def generate(
+    body: GenerateRequest, request: Request, session: SessionDep
+) -> GenerationRecord:
     """Run every configured provider concurrently and store all outcomes.
 
     Returns 201 whenever the request itself was valid, even if some or all
@@ -152,23 +150,36 @@ async def generate(body: GenerateRequest, request: Request) -> GenerationRecord:
         tone=body.tone,
         results={result.provider: _to_output(result) for result in results},
     )
-    request.app.state.store[record.id] = record
+    await save_generation(session, record)
     return record
 
 
 @app.get("/compare/{generation_id}", response_model=GenerationRecord)
-async def compare(generation_id: uuid.UUID, request: Request) -> GenerationRecord:
+async def compare(generation_id: uuid.UUID, session: SessionDep) -> GenerationRecord:
     """Return every provider's output and status for one generation."""
-    record = request.app.state.store.get(generation_id)
+    record = await get_generation(session, generation_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
     return record
 
 
 @app.get("/health")
-async def health(request: Request) -> dict[str, object]:
-    """Liveness check. Does not call providers, so it costs no API quota."""
-    return {
-        "status": "ok",
-        "providers": [p.name for p in request.app.state.providers],
-    }
+async def health(request: Request, session: SessionDep) -> JSONResponse:
+    """Check the app and its database. Does not call providers (no API quota)."""
+    try:
+        await session.execute(text("SELECT 1"))
+        database = "ok"
+    except SQLAlchemyError:
+        logger.exception("database health check failed")
+        database = "unavailable"
+    healthy = database == "ok"
+    return JSONResponse(
+        status_code=status.HTTP_200_OK
+        if healthy
+        else status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "status": "ok" if healthy else "degraded",
+            "database": database,
+            "providers": [p.name for p in request.app.state.providers],
+        },
+    )

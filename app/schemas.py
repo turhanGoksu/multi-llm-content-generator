@@ -1,7 +1,9 @@
-"""Expected output schema and per-provider validation of raw LLM output."""
+"""Output schemas, API record models, and per-provider validation of LLM output."""
 
 import json
+import uuid
 from collections.abc import Callable, Iterable
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -52,6 +54,31 @@ class ValidatedOutput(BaseModel):
     error_message: str | None = None
     # Non-fatal cleanup notes, e.g. items dropped for exceeding a length limit.
     warnings: list[str] = []
+
+
+class ProviderOutput(BaseModel):
+    """One provider's call details and validated output."""
+
+    provider: str
+    model: str
+    status: OutputStatus
+    latency_ms: int
+    http_status: int | None
+    content: AdCopy | None
+    raw_text: str | None
+    error_message: str | None
+    warnings: list[str]
+
+
+class GenerationRecord(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    description: str
+    category: str
+    tone: str
+    # Keyed by provider name, so each output is tied to its provider
+    # explicitly rather than by list position.
+    results: dict[str, ProviderOutput]
 
 
 def validate_output(result: ProviderResult) -> ValidatedOutput:
