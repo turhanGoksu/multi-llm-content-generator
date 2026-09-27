@@ -23,6 +23,8 @@ class OutputStatus(StrEnum):
     """Final per-provider outcome, combining call status and content quality."""
 
     SUCCESS = "success"
+    # Some content, but at least one requested field has no valid items.
+    PARTIAL = "partial"
     EMPTY = "empty"
     INVALID_OUTPUT = "invalid_output"
     RATE_LIMITED = "rate_limited"
@@ -44,6 +46,9 @@ class AdCopy(BaseModel):
 
     def is_empty(self) -> bool:
         return not (self.titles or self.descriptions or self.keywords)
+
+    def empty_fields(self) -> list[str]:
+        return [name for name in type(self).model_fields if not getattr(self, name)]
 
 
 class ValidatedOutput(BaseModel):
@@ -112,7 +117,13 @@ def validate_output(result: ProviderResult) -> ValidatedOutput:
         )
 
     cleaned, warnings = _clean(ad_copy)
-    status = OutputStatus.EMPTY if cleaned.is_empty() else OutputStatus.SUCCESS
+    if cleaned.is_empty():
+        status = OutputStatus.EMPTY
+    elif empty_fields := cleaned.empty_fields():
+        status = OutputStatus.PARTIAL
+        warnings.append(f"no valid items for: {', '.join(empty_fields)}")
+    else:
+        status = OutputStatus.SUCCESS
     return ValidatedOutput(status=status, content=cleaned, warnings=warnings)
 
 
