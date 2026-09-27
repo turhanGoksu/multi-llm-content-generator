@@ -7,7 +7,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Annotated, TypeAlias
+from typing import Annotated
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -88,7 +88,7 @@ async def get_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-SessionDep: TypeAlias = Annotated[AsyncSession, Depends(get_session)]
+type SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 async def _safe_generate(provider: LLMProvider, prompt: str) -> ProviderResult:
