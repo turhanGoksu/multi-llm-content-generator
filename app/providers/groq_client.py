@@ -2,13 +2,31 @@
 
 from typing import Any
 
+import httpx
+
 from app.providers.base import LLMProvider
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
+# Upper bound on generated tokens (not characters). For reasoning models this
+# budget covers the hidden reasoning tokens plus the visible JSON answer.
+GROQ_MAX_COMPLETION_TOKENS = 2048
+
 
 class GroqClient(LLMProvider):
     name = "groq"
+
+    def __init__(
+        self,
+        http_client: httpx.AsyncClient,
+        api_key: str,
+        model: str,
+        timeout_seconds: float,
+        reasoning_effort: str | None = None,
+    ) -> None:
+        super().__init__(http_client, api_key, model, timeout_seconds)
+        # Only reasoning models accept this parameter, so it is sent only when set.
+        self._reasoning_effort = reasoning_effort or None
 
     def _build_request(self, prompt: str) -> tuple[str, dict[str, str], dict[str, Any]]:
         headers = {"Authorization": f"Bearer {self._api_key}"}
@@ -16,7 +34,10 @@ class GroqClient(LLMProvider):
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "response_format": {"type": "json_object"},
+            "max_completion_tokens": GROQ_MAX_COMPLETION_TOKENS,
         }
+        if self._reasoning_effort:
+            body["reasoning_effort"] = self._reasoning_effort
         return GROQ_CHAT_URL, headers, body
 
     def _extract_text(self, body: dict[str, Any]) -> str:

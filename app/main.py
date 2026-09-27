@@ -69,6 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 settings.groq_api_key.get_secret_value(),
                 settings.groq_model,
                 settings.provider_timeout_seconds,
+                reasoning_effort=settings.groq_reasoning_effort,
             ),
         ]
         yield

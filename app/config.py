@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr
     gemini_model: str
     groq_model: str
+    # Optional; only for Groq reasoning models (e.g. "low"). Empty = not sent.
+    groq_reasoning_effort: str | None = None
     provider_timeout_seconds: float = 30.0
     database_url: str
 
